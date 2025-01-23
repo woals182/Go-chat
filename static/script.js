@@ -5,6 +5,69 @@ const chatBox = document.getElementById("chat-box");
 const messageInput = document.getElementById("message-input");
 const sendButton = document.getElementById("send-button");
 const leaveButton = document.getElementById("leave-button");
+const createRoomButton = document.getElementById("create-room-button");
+
+function loadRooms() {
+    fetch("/rooms")
+        .then((response) => {
+            if (!response.ok) {
+                throw new Error("방 목록 가져오기 실패");
+            }
+            return response.json();
+        })
+        .then((rooms) => {
+            roomListContainer.innerHTML = ""; // 기존 방 목록 초기화
+
+            rooms.forEach((room) => {
+                const roomElement = document.createElement("div");
+                roomElement.className = "room-item";
+                roomElement.textContent = `${room.roomName}`;
+                roomListContainer.appendChild(roomElement);
+
+                // 방 클릭 이벤트 추가
+                roomElement.addEventListener("click", () => {
+                    selectedRoom = room;
+                    connectToRoom(); // WebSocket 연결
+                });
+            });
+        })
+        .catch((error) => {
+            console.error(error);
+            alert("방 목록 가져오기 중 오류가 발생했습니다.");
+        });
+}
+
+
+createRoomButton.addEventListener("click", () => {
+    const roomName = prompt("생성할 방 이름을 입력하세요:");
+    if (!roomName) {
+        alert("방 이름을 입력해야 합니다.");
+        return;
+    }
+
+    const ownerName = username; // 현재 사용자 이름을 방 생성자로 설정
+    const roomId = Math.floor(Math.random() * 1000000); // 0부터 999999까지의 임의의 숫자 생성
+
+    fetch("/create-room", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomId, roomName, ownerName }),
+    })
+        .then((response) => {
+            if (!response.ok) {
+                throw new Error("방 생성 실패");
+            }
+            return response.json();
+        })
+        .then(() => {
+            alert(`방 '${roomName}'이 생성되었습니다.`);
+            loadRooms(); // 방 목록 갱신
+        })
+        .catch((error) => {
+            console.error(error);
+            alert("방 생성 중 오류가 발생했습니다.");
+        });
+});
 
 let username = prompt("사용자 이름을 입력하세요:");
 if (!username) username = "익명";
@@ -13,13 +76,7 @@ let selectedRoom = null;
 let socket = null;
 
 // 고정된 5개의 채팅방 목록
-const rooms = [
-    { roomId: "1", roomName: "GO", ownerName: "크크크크" },
-    { roomId: "2", roomName: "Python", ownerName: "AI는 내가 최곤듯" },
-    { roomId: "3", roomName: "Rust", ownerName: "러스트는 없나요" },
-    { roomId: "4", roomName: "JAVA", ownerName: "자바가 한국에선 최고지" },
-    { roomId: "5", roomName: "KOTLIN", ownerName: "코틀린 최고" }
-];
+const rooms = [];
 
 // 채팅방 목록 렌더링
 rooms.forEach((room) => {
@@ -69,7 +126,25 @@ function connectToRoom() {
         if (message.roomName === selectedRoom.roomName) {
             const messageElement = document.createElement("div");
             messageElement.className = "message";
-            messageElement.innerHTML = `<strong>${message.username}:</strong> ${message.content}`;
+            
+        // 자신이 보낸 메시지인지 확인
+        if (message.username === username) {
+            // 자신의 메시지: 오른쪽 정렬, 닉네임 숨김
+            messageElement.style.textAlign = "right";
+            messageElement.innerHTML = `
+                <span style="font-size: 0.8em; color: gray;">${message.timestamp}</span>  
+                ${message.content}
+            `;
+        } else {
+            // 다른 사용자의 메시지: 왼쪽 정렬, 닉네임 표시
+            messageElement.style.textAlign = "left";
+            messageElement.innerHTML = `
+                <strong>${message.username}</strong> 
+                <span style="font-size: 0.8em; color: gray;">${message.timestamp}</span> : 
+                ${message.content}
+            `;
+        }
+
             chatBox.appendChild(messageElement);
             chatBox.scrollTop = chatBox.scrollHeight;
         }
