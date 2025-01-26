@@ -11,7 +11,7 @@ import (
 
 var MongoClient *mongo.Client
 
-// InitMongoDB initializes the MongoDB client and connects to the database
+// 몽고디비 클라이언트 초기화 및 핑테스트
 func InitMongoDB(uri string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -22,7 +22,6 @@ func InitMongoDB(uri string) error {
 		return fmt.Errorf("MongoDB 연결 실패: %w", err)
 	}
 
-	// Ping the database to verify the connection
 	if err := client.Ping(ctx, nil); err != nil {
 		return fmt.Errorf("MongoDB 핑 실패: %w", err)
 	}
@@ -32,7 +31,23 @@ func InitMongoDB(uri string) error {
 	return nil
 }
 
-// GetCollection returns a MongoDB collection from the given database and collection name
+// 몽고디비 컬렉션 가져옹기
 func GetCollection(databaseName, collectionName string) *mongo.Collection {
 	return MongoClient.Database(databaseName).Collection(collectionName)
+}
+
+// 몽고디비에 값 넣기
+func InsertDocument(databaseName, collectionName string, document interface{}) error {
+	collection := GetCollection(databaseName, collectionName)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := collection.InsertOne(ctx, document)
+	if err != nil {
+		return fmt.Errorf("문서 삽입 실패: %w", err)
+	}
+
+	fmt.Printf("문서가 %s 컬렉션에 성공적으로 저장되었습니다.\n", collectionName)
+	return nil
 }
