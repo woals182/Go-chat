@@ -2,13 +2,13 @@ package websocket
 
 import (
 	"Go-chat/models"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
 
@@ -21,39 +21,36 @@ var upgrader = websocket.Upgrader{
 var rooms = make(map[int]*Room) // Room ID -> Room 매핑
 
 // WebSocket 핸들러 (방 선택 가능)
-func WebSocketHandler(w http.ResponseWriter, r *http.Request) {
-	// WebSocket 연결 업그레이드
-	conn, err := upgrader.Upgrade(w, r, nil)
+func WebSocketHandler(c *gin.Context) {
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		log.Printf("웹소켓 업그레이드 실패: %v", err)
 		return
 	}
 	defer conn.Close()
 
-	// 클라이언트가 선택한 방 ID 가져오기
-	roomIDStr := r.URL.Query().Get("room_id")
+	roomIDStr := c.Query("room_id")
 	if roomIDStr == "" {
 		log.Printf("방 ID가 제공되지 않았습니다.")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "방 ID가 필요합니다."})
 		return
 	}
 	roomID, err := strconv.Atoi(roomIDStr)
 	if err != nil || rooms[roomID] == nil {
 		log.Printf("유효하지 않은 방 ID: %s", roomIDStr)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "유효하지 않은 방 ID입니다."})
 		return
 	}
 
-	// 고유 사용자 생성
 	user := &models.User{
 		UserID:   generateUniqueID(),
 		UserName: "User_" + generateUniqueID(),
 	}
 
-	// 방에 사용자 추가
 	room := rooms[roomID]
 	room.AddParticipant(conn, user)
 	defer room.RemoveParticipant(conn)
 
-	// 메시지 처리 루프
 	for {
 		var msg models.Message
 		if err := conn.ReadJSON(&msg); err != nil {
@@ -65,32 +62,33 @@ func WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // 방 생성 핸들러
-func CreateRoomHandler(w http.ResponseWriter, r *http.Request) {
-	roomName := r.URL.Query().Get("name")
-	if roomName == "" {
-		http.Error(w, "방 이름을 제공해야 합니다.", http.StatusBadRequest)
+func CreateRoomHandler(c *gin.Context) {
+	var request struct {
+		Name string `json:"name" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "방 이름을 제공해야 합니다."})
 		return
 	}
 
-	roomID := len(rooms) + 1 // 방 ID 생성
+	roomID := len(rooms) + 1
 	if _, exists := rooms[roomID]; exists {
-		http.Error(w, "이미 존재하는 방입니다.", http.StatusConflict)
+		c.JSON(http.StatusConflict, gin.H{"error": "이미 존재하는 방입니다."})
 		return
 	}
 
-	rooms[roomID] = NewRoom(roomID, roomName)
-	log.Printf("새 채팅방 생성: %s (ID: %d)", roomName, roomID)
+	rooms[roomID] = NewRoom(roomID, request.Name)
+	log.Printf("새 채팅방 생성: %s (ID: %d)", request.Name, roomID)
 
-	w.Header().Set("Content-Type", "application/json")
-	response := map[string]interface{}{
+	c.JSON(http.StatusOK, gin.H{
 		"room_id":   roomID,
-		"room_name": roomName,
-	}
-	json.NewEncoder(w).Encode(response)
+		"room_name": request.Name,
+	})
 }
 
 // 방 목록 반환 핸들러
-func ListRoomsHandler(w http.ResponseWriter, r *http.Request) {
+func ListRoomsHandler(c *gin.Context) {
 	type RoomInfo struct {
 		RoomID   int    `json:"room_id"`
 		RoomName string `json:"room_name"`
@@ -104,35 +102,31 @@ func ListRoomsHandler(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(roomList); err != nil {
-		http.Error(w, "방 목록 반환 실패", http.StatusInternalServerError)
-	}
+	c.JSON(http.StatusOK, roomList)
 }
 
-func DeleteRoomHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("DeleteRoomHandler 호출됨") // 디버깅 로그 추가
+// 방 삭제 핸들러
+func DeleteRoomHandler(c *gin.Context) {
+	log.Println("DeleteRoomHandler 호출됨")
 
-	roomIDStr := r.URL.Query().Get("room_id")
+	roomIDStr := c.Param("room_id")
 	if roomIDStr == "" {
 		log.Println("방 ID를 제공하지 않음")
-		http.Error(w, "방 ID를 제공해야 합니다.", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "방 ID를 제공해야 합니다."})
 		return
 	}
 
 	roomID, err := strconv.Atoi(roomIDStr)
 	if err != nil {
 		log.Printf("유효하지 않은 방 ID: %s", roomIDStr)
-		http.Error(w, "유효하지 않은 방 ID입니다.", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "유효하지 않은 방 ID입니다."})
 		return
 	}
-
-	log.Printf("삭제 요청된 Room ID: %d", roomID)
 
 	room, exists := rooms[roomID]
 	if !exists {
 		log.Printf("방 ID %d가 존재하지 않음", roomID)
-		http.Error(w, "해당 방이 존재하지 않습니다.", http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"error": "해당 방이 존재하지 않습니다."})
 		return
 	}
 
@@ -140,8 +134,7 @@ func DeleteRoomHandler(w http.ResponseWriter, r *http.Request) {
 	delete(rooms, roomID)
 
 	log.Printf("채팅방 삭제 성공: %d", roomID)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf("채팅방 %d 삭제 성공", roomID)))
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("채팅방 %d 삭제 성공", roomID)})
 }
 
 // 고유 ID 생성

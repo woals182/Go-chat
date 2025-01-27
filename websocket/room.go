@@ -19,12 +19,17 @@ type Room struct {
 
 // Room 생성
 func NewRoom(roomID int, roomName string) *Room {
-	return &Room{
+	room := &Room{
 		RoomID:       roomID,
 		RoomName:     roomName,
 		Participants: make(map[*websocket.Conn]*models.User),
 		Broadcast:    make(chan *models.Message),
 	}
+
+	// 메시지 브로드캐스트 시작
+	go room.StartBroadcast()
+
+	return room
 }
 
 func (r *Room) CloseAllConnections() {
@@ -56,7 +61,7 @@ func (r *Room) AddParticipant(conn *websocket.Conn, user *models.User) {
 		Timestamp: "",
 	}
 	r.Broadcast <- joinMessage
-	log.Printf("%s님이 방에 참여했습니다.", user.UserName)
+	log.Printf("%s님이 방에 참여했습니다.", user.UserID)
 }
 
 // 참여자 제거
@@ -73,7 +78,7 @@ func (r *Room) RemoveParticipant(conn *websocket.Conn) {
 			Timestamp: "",
 		}
 		r.Broadcast <- leaveMessage
-		log.Printf("%s님이 방을 나갔습니다.", user.UserName)
+		log.Printf("%s님이 방을 나갔습니다.", user.UserID)
 		delete(r.Participants, conn)
 	}
 }

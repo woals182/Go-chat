@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title> 채팅방 관리 </title>
+    <title>채팅방 관리</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -59,30 +59,63 @@
         #create-room-form button:hover {
             background-color: #0056b3;
         }
+
+        .chat-room {
+            width: 80%;
+            max-width: 600px;
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #fff;
+        }
+
+        .chat-messages {
+            height: 200px;
+            overflow-y: scroll;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+
+        .chat-input {
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input input {
+            flex-grow: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .chat-input button {
+            padding: 10px 20px;
+            border: none;
+            background-color: #007BFF;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
-    <h1> 채팅방 관리 </h1>
+    <h1>채팅방 관리</h1>
 
     <!-- 채팅방 생성 -->
     <form id="create-room-form">
         <input type="text" id="room-name" placeholder="채팅방 이름 입력" required />
-        <button type="submit"> 채팅방 만들기 </button>
+        <button type="submit">채팅방 만들기</button>
     </form>
 
     <!-- 채팅방 리스트 -->
     <div id="room-list">
-        <h3> 채팅방 리스트 </h3>
+        <h3>채팅방 리스트</h3>
     </div>
 
     <script>
-        const userId = generateUniqueUserId(); // 고유 사용자 ID 생성
-        console.log(`사용자 ID: ${userId}`);
-
-        // 고유 사용자 ID 생성 로직
-        function generateUniqueUserId() {
-            return `user_${Math.random().toString(36).substr(2, 9)}`;
-        }
+        const userId = `User_${Date.now()}`; // 간단한 고유 ID 생성 예제
 
         // 채팅방 목록 가져오기
         async function fetchRooms() {
@@ -90,7 +123,7 @@
             const rooms = await response.json();
 
             const roomList = document.getElementById("room-list");
-            roomList.innerHTML = "<h3> 채팅방 리스트 </h3>";
+            roomList.innerHTML = "<h3>채팅방 리스트</h3>";
             rooms.forEach((room) => {
                 const roomContainer = document.createElement("div");
                 roomContainer.style.display = "flex";
@@ -113,7 +146,6 @@
                 joinButton.style.cursor = "pointer";
                 joinButton.onclick = () => joinRoom(room.room_id);
 
-                // 방 삭제 버튼
                 const deleteButton = document.createElement("button");
                 deleteButton.textContent = "삭제";
                 deleteButton.style.backgroundColor = "#FF5733";
@@ -123,10 +155,10 @@
                 deleteButton.style.padding = "10px";
                 deleteButton.style.cursor = "pointer";
                 deleteButton.onclick = async () => {
-                    const confirmed = confirm(`"${room.room_name}" 채팅방을 삭제하시겠습니까?`);
+                    const confirmed = confirm(`채팅방 '${room.room_name}'을 삭제하시겠습니까?`);
                     if (confirmed) {
                         await deleteRoom(room.room_id);
-                        fetchRooms(); // 삭제 후 목록 갱신
+                        fetchRooms();
                     }
                 };
 
@@ -144,10 +176,16 @@
             if (!roomName) return;
 
             try {
-                const response = await fetch(`http://localhost:8080/create-room?name=${encodeURIComponent(roomName)}`);
+                const response = await fetch("http://localhost:8080/create-room", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ name: roomName }),
+                });
                 if (response.ok) {
                     alert("채팅방이 생성되었습니다.");
-                    fetchRooms(); // 방 목록 갱신
+                    fetchRooms();
                 } else {
                     alert("채팅방 생성에 실패했습니다.");
                 }
@@ -160,11 +198,11 @@
         // 채팅방 삭제
         async function deleteRoom(roomId) {
             try {
-                const response = await fetch(`http://localhost:8080/delete-room?room_id=${roomId}`, {
-                    method: "GET",
+                const response = await fetch(`http://localhost:8080/delete-room/${roomId}`, {
+                    method: "DELETE",
                 });
                 if (response.ok) {
-                    alert(`채팅방 ${roomId}이 삭제되었습니다.`);
+                    alert("채팅방이 삭제되었습니다.");
                 } else {
                     alert("채팅방 삭제에 실패했습니다.");
                 }
@@ -174,88 +212,77 @@
             }
         }
 
-        // 채팅방 입장
+        // 채팅방 입장 및 UI 생성
         function joinRoom(roomId) {
+            if (activeConnections[roomId]) {
+                console.log(`이미 채팅방 ${roomId}에 연결되어 있습니다.`);
+                return; // 이미 연결된 경우 중단
+            }
+
             const ws = new WebSocket(`ws://localhost:8080/ws?room_id=${roomId}`);
 
-            // 채팅 UI가 없으면 생성
-            let chatBox = document.getElementById(`chat-room-${roomId}`);
-            if (!chatBox) {
-                chatBox = document.createElement("div");
-                chatBox.id = `chat-room-${roomId}`;
-                chatBox.style.border = "1px solid #ddd";
-                chatBox.style.padding = "10px";
-                chatBox.style.marginTop = "20px";
-                chatBox.style.width = "80%";
-                chatBox.style.maxWidth = "600px";
-                chatBox.style.background = "#fff";
-                chatBox.innerHTML = `
-                    <h3>Chat Room ${roomId}</h3>
-                    <div id="messages-${roomId}" style="height: 200px; overflow-y: scroll; border: 1px solid #ddd; padding: 10px; margin-bottom: 10px;"></div>
-                    <form id="chat-form-${roomId}" style="display: flex; gap: 10px;">
-                        <input type="text" id="message-${roomId}" placeholder="Enter your message" style="flex-grow: 1; padding: 10px; border: 1px solid #ddd; border-radius: 5px;" required />
-                        <button type="submit" style="padding: 10px 20px; border: none; background-color: #007BFF; color: white; border-radius: 5px;">Send</button>
+            let chatRoom = document.getElementById(`chat-room-${roomId}`);
+            if (!chatRoom) {
+                chatRoom = document.createElement("div");
+                chatRoom.id = `chat-room-${roomId}`;
+                chatRoom.className = "chat-room";
+                chatRoom.innerHTML = `
+                    <h3>채팅방 ${roomId}</h3>
+                    <div id="messages-${roomId}" class="chat-messages"></div>
+                    <form id="chat-form-${roomId}" class="chat-input">
+                        <input type="text" id="message-${roomId}" placeholder="메시지 입력" required />
+                        <button type="submit">전송</button>
                     </form>
-                    <button id="leave-room-${roomId}" style="margin-top: 10px; padding: 10px 20px; border: none; background-color: #FF5733; color: white; border-radius: 5px; cursor: pointer;">Leave Room</button>
                 `;
-                document.body.appendChild(chatBox);
+                document.body.appendChild(chatRoom);
 
-                // 메시지 전송 핸들러
-                document.getElementById(`chat-form-${roomId}`).addEventListener("submit", (event) => {
+                const chatForm = document.getElementById(`chat-form-${roomId}`);
+                chatForm.addEventListener("submit", (event) => {
                     event.preventDefault();
                     const input = document.getElementById(`message-${roomId}`);
-                    const messageContent = input.value;
-
-                    if (messageContent) {
-                        const message = {
-                            user_id: userId, // 생성된 사용자 ID
+                    const message = input.value;
+                    if (message) {
+                        ws.send(JSON.stringify({
                             room_id: roomId,
-                            content: messageContent,
-                            timestamp: new Date().toISOString(),
-                        };
-                        ws.send(JSON.stringify(message)); // 메시지 서버로 전송
-                        appendMessage(`You: ${messageContent}`, roomId); // 본인 메시지 화면에 표시
-                        input.value = ""; // 입력 필드 초기화
+                            user_id: userId, // 서버에 사용자 ID 전달
+                            content: message,
+                        }));
+                        appendMessage(roomId, `${userId}: ${message}`);
+                        input.value = "";
                     }
-                });
-
-                // 방 나가기 버튼 핸들러
-                document.getElementById(`leave-room-${roomId}`).addEventListener("click", () => {
-                    ws.close(); // WebSocket 연결 종료
-                    chatBox.remove(); // 채팅창 제거
-                    alert(`You left room ${roomId}`);
                 });
             }
 
-            // WebSocket 이벤트 처리
             ws.onopen = () => {
-                console.log(`Connected to room: ${roomId}`);
-                appendMessage("You joined the room", roomId);
+            console.log("WebSocket 연결 성공");
+            appendMessage(roomId, "채팅방에 입장했습니다.");
             };
 
             ws.onmessage = (event) => {
-                const data = JSON.parse(event.data); // 서버에서 수신한 메시지
-                appendMessage(`${data.user_id}: ${data.content}`, roomId); // 메시지 화면에 표시
+                const data = JSON.parse(event.data);
+                appendMessage(roomId, `${data.user_id}: ${data.content}`);
             };
 
             ws.onclose = () => {
-                appendMessage("Disconnected from the room", roomId);
+                console.log("WebSocket 연결 종료");
             };
 
             ws.onerror = (error) => {
-                console.error("WebSocket error:", error);
+                console.error("WebSocket 에러:", error);
             };
         }
 
         // 메시지 화면에 추가
-        function appendMessage(message, roomId) {
+        function appendMessage(roomId, message) {
             const messagesDiv = document.getElementById(`messages-${roomId}`);
             if (messagesDiv) {
                 const messageDiv = document.createElement("div");
                 messageDiv.textContent = message;
-                messageDiv.style.marginBottom = "5px";
+                messageDiv.style.wordWrap = "break-word"; // 긴 메시지 처리
                 messagesDiv.appendChild(messageDiv);
-                messagesDiv.scrollTop = messagesDiv.scrollHeight; // 스크롤을 가장 아래로 이동
+
+                // 스크롤을 항상 최신 메시지로 이동
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
             }
         }
 

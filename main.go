@@ -72,35 +72,37 @@ package main
 
 import (
 	"Go-chat/websocket"
+	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
 	r := gin.Default()
 
-	// 정적 파일 서빙
 	r.Static("/static", "./static")
 
-	// 방 생성 API
-	r.GET("/create-room", func(c *gin.Context) {
-		websocket.CreateRoomHandler(c.Writer, c.Request)
-	})
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"*"}, // 프론트엔드 도메인
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
 
-	// 방 제거 API
-	r.GET("/delete-room", func(c *gin.Context) {
-		websocket.DeleteRoomHandler(c.Writer, c.Request)
-	})
+	// 방 생성 API
+	r.POST("/create-room", websocket.CreateRoomHandler)
+
+	// 방 삭제 API
+	r.DELETE("/delete-room/:room_id", websocket.DeleteRoomHandler)
 
 	// 방 목록 반환 API
-	r.GET("/list-rooms", func(c *gin.Context) {
-		websocket.ListRoomsHandler(c.Writer, c.Request)
-	})
+	r.GET("/list-rooms", websocket.ListRoomsHandler)
 
 	// WebSocket 핸들러
-	r.GET("/ws", func(c *gin.Context) {
-		websocket.WebSocketHandler(c.Writer, c.Request)
-	})
+	r.GET("/ws", websocket.WebSocketHandler)
 
 	// 서버 실행
 	r.Run(":8080") // http://localhost:8080
