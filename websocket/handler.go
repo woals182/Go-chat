@@ -2,7 +2,6 @@ package websocket
 
 import (
 	"Go-chat/models"
-	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -18,9 +17,9 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-var rooms = make(map[int]*Room) // Room ID -> Room 매핑
+var rooms = make(map[int]*models.Room) // ✅ `models.Room` 사용
 
-// WebSocket 핸들러 (방 선택 가능)
+// ✅ WebSocket 핸들러 (채팅방 연결)
 func WebSocketHandler(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -30,11 +29,6 @@ func WebSocketHandler(c *gin.Context) {
 	defer conn.Close()
 
 	roomIDStr := c.Query("room_id")
-	if roomIDStr == "" {
-		log.Printf("방 ID가 제공되지 않았습니다.")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "방 ID가 필요합니다."})
-		return
-	}
 	roomID, err := strconv.Atoi(roomIDStr)
 	if err != nil || rooms[roomID] == nil {
 		log.Printf("유효하지 않은 방 ID: %s", roomIDStr)
@@ -61,83 +55,90 @@ func WebSocketHandler(c *gin.Context) {
 	}
 }
 
-// 방 생성 핸들러
+// ✅ 방 생성 API (`POST /create-room`)
 func CreateRoomHandler(c *gin.Context) {
 	var request struct {
-		Name string `json:"name" binding:"required"`
+		RoomName  string `json:"room_name" binding:"required"`
+		CreaterID string `json:"creater_id" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "방 이름을 제공해야 합니다."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "방 이름과 생성자 ID를 제공해야 합니다."})
 		return
 	}
 
 	roomID := len(rooms) + 1
-	if _, exists := rooms[roomID]; exists {
-		c.JSON(http.StatusConflict, gin.H{"error": "이미 존재하는 방입니다."})
-		return
+	newRoom := models.NewRoom(roomID, request.RoomName, request.CreaterID)
+
+	// ✅ 생성자를 첫 번째 참가자로 추가 (방장 역할)
+	newRoom.Participants[&websocket.Conn{}] = &models.User{
+		UserID:   request.CreaterID,
+		UserName: "방장",
 	}
 
-	rooms[roomID] = NewRoom(roomID, request.Name)
-	log.Printf("새 채팅방 생성: %s (ID: %d)", request.Name, roomID)
+	rooms[roomID] = newRoom
 
+	log.Printf("새 채팅방 생성: %s (ID: %d, 생성자: %s)", request.RoomName, roomID, request.CreaterID)
+
+	// ✅ 생성된 방 정보 반환
 	c.JSON(http.StatusOK, gin.H{
-		"room_id":   roomID,
-		"room_name": request.Name,
+		"room_id":    newRoom.RoomID,
+		"room_name":  newRoom.RoomName,
+		"creater_id": newRoom.CreaterID,
+		"participants": []models.Participant{
+			{
+				UserID:   request.CreaterID,
+				UserName: "방장",
+			},
+		},
 	})
 }
 
-// 방 목록 반환 핸들러
+// ✅ 방 목록 조회 API (`GET /list-rooms`)
 func ListRoomsHandler(c *gin.Context) {
-	type RoomInfo struct {
-		RoomID   int    `json:"room_id"`
-		RoomName string `json:"room_name"`
-	}
+	var roomList []models.SerializableRoom // ✅ JSON 변환 가능한 구조체 사용
 
-	var roomList []RoomInfo
 	for _, room := range rooms {
-		roomList = append(roomList, RoomInfo{
-			RoomID:   room.RoomID,
-			RoomName: room.RoomName,
-		})
+		roomList = append(roomList, room.ToSerializable()) // ✅ 변환된 데이터 추가
 	}
 
-	c.JSON(http.StatusOK, roomList)
-}
+	// ✅ 로그 추가: 반환할 JSON 확인
+	log.Printf("🚀 [API Response] 방 목록 반환: %+v", roomList)
 
-// 방 삭제 핸들러
-func DeleteRoomHandler(c *gin.Context) {
-	log.Println("DeleteRoomHandler 호출됨")
-
-	roomIDStr := c.Param("room_id")
-	if roomIDStr == "" {
-		log.Println("방 ID를 제공하지 않음")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "방 ID를 제공해야 합니다."})
+	if len(roomList) == 0 {
+		// ✅ 빈 배열 반환 방지: 최소한 빈 리스트 반환
+		log.Println("🚨 [Warning] 방 목록이 비어 있음. 빈 배열 반환")
+		c.JSON(http.StatusOK, gin.H{"rooms": []models.SerializableRoom{}})
 		return
 	}
 
+	c.JSON(http.StatusOK, gin.H{"rooms": roomList}) // ✅ JSON 응답 반환
+}
+
+// ✅ 방 삭제 핸들러 (`DELETE /delete-room/:room_id`)
+func DeleteRoomHandler(c *gin.Context) {
+	roomIDStr := c.Param("room_id")
 	roomID, err := strconv.Atoi(roomIDStr)
 	if err != nil {
-		log.Printf("유효하지 않은 방 ID: %s", roomIDStr)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "유효하지 않은 방 ID입니다."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "유효하지 않은 방 ID"})
 		return
 	}
 
 	room, exists := rooms[roomID]
-	if !exists {
-		log.Printf("방 ID %d가 존재하지 않음", roomID)
+	if !exists || room == nil { // ✅ 방이 존재하는지 확인
 		c.JSON(http.StatusNotFound, gin.H{"error": "해당 방이 존재하지 않습니다."})
 		return
 	}
 
+	// ✅ 방 삭제 전에 모든 연결 닫기
 	room.CloseAllConnections()
 	delete(rooms, roomID)
 
 	log.Printf("채팅방 삭제 성공: %d", roomID)
-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("채팅방 %d 삭제 성공", roomID)})
+	c.JSON(http.StatusOK, gin.H{"message": "채팅방 삭제 성공"})
 }
 
-// 고유 ID 생성
+// ✅ 고유 ID 생성 함수
 func generateUniqueID() string {
 	return time.Now().Format("20060102150405.000")
 }
